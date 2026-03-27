@@ -8,32 +8,57 @@
 <style>
     body {
         margin: 0;
-        font-family: 'Arial', sans-serif;
+        font-family: Arial, sans-serif;
         background: #1a1a2e;
         display: flex;
         height: 100vh;
         overflow: hidden;
     }
 
-    /* LEFT: Terrain */
     #canvas-container {
         flex: 1;
         height: 100%;
+        transition: all 0.3s ease;
     }
 
-    /* RIGHT: Sidebar */
+    /* Sidebar */
     #controls {
         width: 320px;
-        background: rgba(255, 255, 255, 0.95);
+        background: rgba(255,255,255,0.95);
         padding: 20px;
         box-shadow: -4px 0 6px rgba(0,0,0,0.3);
         overflow-y: auto;
+        transition: transform 0.3s ease;
+    }
+
+    /* Hidden state */
+    #controls.collapsed {
+        transform: translateX(100%);
+    }
+
+    /* Toggle button */
+    #toggleBtn {
+        position: absolute;
+        top: 20px;
+        right: 340px;
+        z-index: 10;
+        padding: 8px 12px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: right 0.3s ease;
+    }
+
+    #toggleBtn.collapsed {
+        right: 20px;
     }
 
     h2 {
         margin-top: 0;
         color: #1a1a2e;
-        font-size: 18px;
     }
 
     .control-group {
@@ -42,9 +67,7 @@
 
     label {
         display: block;
-        margin-bottom: 5px;
         font-size: 13px;
-        color: #333;
         font-weight: bold;
     }
 
@@ -54,25 +77,19 @@
 
     .value-display {
         float: right;
-        color: #666;
         font-size: 12px;
+        color: #666;
     }
 
     button {
         width: 100%;
         padding: 10px;
+        margin-top: 10px;
         background: #4CAF50;
         color: white;
         border: none;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 14px;
-        font-weight: bold;
-        margin-top: 10px;
-    }
-
-    button:hover {
-        background: #45a049;
     }
 
     #info {
@@ -80,10 +97,10 @@
         bottom: 20px;
         left: 20px;
         color: white;
-        font-size: 12px;
         background: rgba(0,0,0,0.7);
         padding: 10px;
         border-radius: 4px;
+        font-size: 12px;
     }
 </style>
 </head>
@@ -92,192 +109,61 @@
 
 <div id="canvas-container"></div>
 
+<button id="toggleBtn">Hide UI</button>
+
 <div id="controls">
     <h2>Terrain Parameters</h2>
 
     <div class="control-group">
-        <label>Scale <span class="value-display" id="scale-value">50</span></label>
+        <label>Scale <span id="scale-value" class="value-display">50</span></label>
         <input type="range" id="scale" min="10" max="200" value="50">
     </div>
 
     <div class="control-group">
-        <label>Amplitude <span class="value-display" id="amplitude-value">15</span></label>
+        <label>Amplitude <span id="amplitude-value" class="value-display">15</span></label>
         <input type="range" id="amplitude" min="1" max="50" value="15">
     </div>
 
-    <div class="control-group">
-        <label>Octaves <span class="value-display" id="octaves-value">4</span></label>
-        <input type="range" id="octaves" min="1" max="8" value="4">
-    </div>
-
-    <div class="control-group">
-        <label>Persistence <span class="value-display" id="persistence-value">0.5</span></label>
-        <input type="range" id="persistence" min="0.1" max="1" value="0.5" step="0.1">
-    </div>
-
-    <div class="control-group">
-        <label>Lacunarity <span class="value-display" id="lacunarity-value">2</span></label>
-        <input type="range" id="lacunarity" min="1" max="4" value="2" step="0.1">
-    </div>
-
-    <div class="control-group">
-        <label>Seed <span class="value-display" id="seed-value">1234</span></label>
-        <input type="range" id="seed" min="1" max="9999" value="1234">
-    </div>
-
-    <button id="regenerate">Regenerate Terrain</button>
-    <button id="randomize">Randomize Parameters</button>
-
-    <h2 style="margin-top:20px;">Audio</h2>
-
-    <button id="playSound">Play Terrain as Sound</button>
-    <button id="stopSound">Stop Sound</button>
-
-    <div class="control-group">
-        <label>Duration <span class="value-display" id="duration-value">5</span></label>
-        <input type="range" id="duration" min="1" max="20" value="5">
-    </div>
-
-    <div class="control-group">
-        <label>Base Frequency <span class="value-display" id="baseFreq-value">220</span></label>
-        <input type="range" id="baseFreq" min="55" max="880" value="220">
-    </div>
+    <button id="regenerate">Regenerate</button>
 </div>
 
-<div id="info">Use mouse to rotate • Scroll to zoom • Drag to pan</div>
+<div id="info">Use mouse to rotate • Scroll to zoom</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
 let scene, camera, renderer, terrain;
-let noiseGenerator;
-
-const params = {
-    scale: 50,
-    amplitude: 15,
-    octaves: 4,
-    persistence: 0.5,
-    lacunarity: 2.0,
-    seed: 1234,
-    resolution: 100
-};
-
-class PerlinNoise {
-    constructor(seed = 0) {
-        this.seed = seed;
-        this.p = this.buildPermutationTable();
-    }
-
-    buildPermutationTable() {
-        const p = [];
-        for (let i = 0; i < 256; i++) p[i] = i;
-
-        let n = 256;
-        while (n > 1) {
-            const k = Math.floor(this.seededRandom() * n--);
-            [p[n], p[k]] = [p[k], p[n]];
-        }
-
-        for (let i = 0; i < 256; i++) p[256 + i] = p[i];
-        return p;
-    }
-
-    seededRandom() {
-        const x = Math.sin(this.seed++) * 10000;
-        return x - Math.floor(x);
-    }
-
-    fade(t) { return t*t*t*(t*(t*6-15)+10); }
-    lerp(t,a,b){ return a+t*(b-a); }
-
-    grad(hash,x,y){
-        const h = hash & 15;
-        const u = h<8?x:y;
-        const v = h<4?y:h===12||h===14?x:0;
-        return ((h&1)?-u:u)+((h&2)?-v:v);
-    }
-
-    noise(x,y){
-        const X=Math.floor(x)&255;
-        const Y=Math.floor(y)&255;
-        x-=Math.floor(x);
-        y-=Math.floor(y);
-        const u=this.fade(x);
-        const v=this.fade(y);
-        const a=this.p[X]+Y;
-        const b=this.p[X+1]+Y;
-
-        return this.lerp(v,
-            this.lerp(u,this.grad(this.p[a],x,y),this.grad(this.p[b],x-1,y)),
-            this.lerp(u,this.grad(this.p[a+1],x,y-1),this.grad(this.p[b+1],x-1,y-1))
-        );
-    }
-
-    octaveNoise(x,y,o,p,l){
-        let total=0,f=1,a=1,max=0;
-        for(let i=0;i<o;i++){
-            total+=this.noise(x*f,y*f)*a;
-            max+=a;
-            a*=p;
-            f*=l;
-        }
-        return total/max;
-    }
-}
 
 function init(){
-    scene=new THREE.Scene();
-    camera=new THREE.PerspectiveCamera(75,1,0.1,1000);
+    const container = document.getElementById("canvas-container");
 
-    const container=document.getElementById('canvas-container');
-    renderer=new THREE.WebGLRenderer({antialias:true});
-    renderer.setSize(container.clientWidth,container.clientHeight);
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, container.clientWidth/container.clientHeight, 0.1, 1000);
+
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
     camera.position.set(0,50,80);
 
-    scene.add(new THREE.AmbientLight(0x404040,0.6));
-
-    const light=new THREE.DirectionalLight(0xffffff,0.8);
+    const light = new THREE.DirectionalLight(0xffffff,1);
     light.position.set(50,100,50);
     scene.add(light);
 
     generateTerrain();
 
-    window.addEventListener('resize',onResize);
+    window.addEventListener("resize", resize);
     animate();
 }
 
 function generateTerrain(){
-    if(terrain){
-        scene.remove(terrain);
-        terrain.geometry.dispose();
-        terrain.material.dispose();
-    }
+    if(terrain) scene.remove(terrain);
 
-    noiseGenerator=new PerlinNoise(params.seed);
+    const geo = new THREE.PlaneGeometry(100,100,50,50);
+    const mat = new THREE.MeshStandardMaterial({color:0x88aa88});
+    terrain = new THREE.Mesh(geo,mat);
+    terrain.rotation.x = -Math.PI/2;
 
-    const geo=new THREE.PlaneGeometry(100,100,params.resolution-1,params.resolution-1);
-    const v=geo.attributes.position.array;
-
-    for(let i=0;i<v.length;i+=3){
-        const x=v[i];
-        const y=v[i+1];
-
-        v[i+2]=noiseGenerator.octaveNoise(
-            x/params.scale,
-            y/params.scale,
-            params.octaves,
-            params.persistence,
-            params.lacunarity
-        )*params.amplitude;
-    }
-
-    geo.computeVertexNormals();
-
-    const mat=new THREE.MeshStandardMaterial({color:0x88aa88,flatShading:true});
-    terrain=new THREE.Mesh(geo,mat);
-    terrain.rotation.x=-Math.PI/2;
     scene.add(terrain);
 }
 
@@ -286,14 +172,29 @@ function animate(){
     renderer.render(scene,camera);
 }
 
-function onResize(){
-    const container=document.getElementById('canvas-container');
-    camera.aspect=container.clientWidth/container.clientHeight;
+function resize(){
+    const container = document.getElementById("canvas-container");
+    camera.aspect = container.clientWidth/container.clientHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth,container.clientHeight);
+    renderer.setSize(container.clientWidth, container.clientHeight);
 }
 
 init();
+
+/* ===== COLLAPSE LOGIC ===== */
+const controls = document.getElementById("controls");
+const toggleBtn = document.getElementById("toggleBtn");
+
+toggleBtn.addEventListener("click", () => {
+    controls.classList.toggle("collapsed");
+    toggleBtn.classList.toggle("collapsed");
+
+    toggleBtn.textContent = controls.classList.contains("collapsed")
+        ? "Show UI"
+        : "Hide UI";
+
+    setTimeout(resize, 300); // wait for animation
+});
 </script>
 
 </body>
